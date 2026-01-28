@@ -1,0 +1,27 @@
+services:
+  telegram:
+    build:
+      context: .
+      network: default
+    image: telegram-multiacc:latest
+    container_name: telegram-multiacc
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - ${TDATA_HOST}:/opt/Telegram/TelegramForcePortable/tdata
+      - ${SHARED_HOST}:${SHARED_HOST}
+      - ${DOWNLOADS_HOST}:/root/Downloads
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    devices:
+      - /dev/snd
+    group_add:
+      - audio
+    ipc: host
+    network_mode: host
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    restart: "no"
+
+
