@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Настройка DNS для решения проблем с разрешением имен
+# DNS
 RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf && \
     echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
@@ -37,12 +37,14 @@ RUN apt-get update && \
       libxi6 \
       libxtst6 \
       libfontconfig1 \
-      libfreetype6 && \
+      libfreetype6 \
+      redsocks \
+      iptables && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
 
-# Download and extract Telegram Desktop (official tar.xz contains a single "Telegram" dir)
+# Download and extract Telegram Desktop
 RUN wget -O tdesktop.tar.xz https://telegram.org/dl/desktop/linux && \
     tar -xJf tdesktop.tar.xz && \
     rm tdesktop.tar.xz
@@ -55,6 +57,7 @@ ENV QT_X11_NO_MITSHM=1 \
     LC_ALL=C.UTF-8
 WORKDIR /opt/Telegram
 
-ENTRYPOINT ["./Telegram"]
+COPY entrypoint.sh /opt/Telegram/entrypoint.sh
+RUN chmod +x /opt/Telegram/entrypoint.sh
 
-
+ENTRYPOINT ["/opt/Telegram/entrypoint.sh"]
