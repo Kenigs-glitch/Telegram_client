@@ -16,6 +16,23 @@ if command -v xhost >/dev/null 2>&1; then
   xhost +local:docker >/dev/null 2>&1 || true
 fi
 
+# === Keyboard layout normalization (ru → en) ===
+
+# Map Russian ЙЦУКЕН letters to their QWERTY position so menu hotkeys
+# work regardless of the active keyboard layout. Covers every letter,
+# lowercases input, and leaves latin/digits untouched.
+normalize_key() {
+  local s="${1,,}"
+  case "$s" in
+    й) s=q ;; ц) s=w ;; у) s=e ;; к) s=r ;; е) s=t ;; н) s=y ;;
+    г) s=u ;; ш) s=i ;; щ) s=o ;; з) s=p ;;
+    ф) s=a ;; ы) s=s ;; в) s=d ;; а) s=f ;; п) s=g ;; р) s=h ;;
+    о) s=j ;; л) s=k ;; д) s=l ;;
+    я) s=z ;; ч) s=x ;; с) s=c ;; м) s=v ;; и) s=b ;; т) s=n ;; ь) s=m ;;
+  esac
+  printf '%s' "$s"
+}
+
 # === tdata selection ===
 
 list_tdata() {
@@ -65,7 +82,7 @@ choose_proxy() {
   # No proxies file → direct
   if [ ! -f "$PROXIES_FILE" ]; then
     echo "proxies.json не найден → прямое подключение"
-    export PROXY_HOST="" PROXY_PORT="" PROXY_USER="" PROXY_PASS=""
+    export PROXY_HOST="" PROXY_PORT="" PROXY_USER="" PROXY_PASS="" PROXY_TYPE=""
     return
   fi
 
@@ -113,7 +130,7 @@ for i, p in enumerate(proxies):
 
   if [ "$choice" -eq 0 ]; then
     echo "Без прокси"
-    export PROXY_HOST="" PROXY_PORT="" PROXY_USER="" PROXY_PASS=""
+    export PROXY_HOST="" PROXY_PORT="" PROXY_USER="" PROXY_PASS="" PROXY_TYPE=""
     # Save choice (-1 = no proxy)
     save_assignment "$phone" -1
   else
@@ -123,13 +140,21 @@ for i, p in enumerate(proxies):
   fi
 }
 
+check_proxy() {
+  local idx="$1"
+  if [ "$idx" = "-1" ]; then
+    return 0
+  fi
+  python3 "$PROJECT_DIR/check_proxy.py" "$PROXIES_FILE" "$idx"
+}
+
 apply_proxy() {
   local idx="$1"
   local phone="$2"
 
   if [ "$idx" = "-1" ]; then
     echo "Прокси: прямое подключение"
-    export PROXY_HOST="" PROXY_PORT="" PROXY_USER="" PROXY_PASS=""
+    export PROXY_HOST="" PROXY_PORT="" PROXY_USER="" PROXY_PASS="" PROXY_TYPE=""
     return
   fi
 
@@ -142,12 +167,56 @@ port = p.get('port', '')
 user = p.get('login') or p.get('username') or ''
 passwd = p.get('password', '')
 name = p.get('name', '')
+proto = p.get('protocol', 'socks5')
 print(f'export PROXY_HOST=\"{ip}\"')
 print(f'export PROXY_PORT=\"{port}\"')
 print(f'export PROXY_USER=\"{user}\"')
 print(f'export PROXY_PASS=\"{passwd}\"')
-print(f'echo \"Прокси: {ip}:{port} ({name})\"')
+print(f'export PROXY_TYPE=\"{proto}\"')
+print(f'echo \"Прокси: {ip}:{port} [{proto}] ({name})\"')
 " 2>/dev/null)"
+
+  # Validate proxy liveness
+  if ! check_proxy "$idx"; then
+    echo ""
+    echo "⚠  Прокси мёртв! Выберите действие:"
+    echo "  1) Выбрать другой прокси"
+    echo "  2) Продолжить без прокси (прямое подключение)"
+    echo "  3) Всё равно использовать этот прокси"
+    local action
+    while true; do
+      read -rp "Ваш выбор (1-3): " action || true
+      case "$action" in
+        1)
+          # Remove saved assignment and re-choose
+          python3 -c "
+import json
+from pathlib import Path
+path = Path('$ASSIGNMENTS_FILE')
+data = {}
+if path.exists():
+    try: data = json.load(open(path))
+    except: pass
+data.pop('$phone', None)
+json.dump(data, open(path, 'w'), indent=2)
+" 2>/dev/null
+          choose_proxy "$phone"
+          return
+          ;;
+        2)
+          echo "Продолжаю без прокси."
+          export PROXY_HOST="" PROXY_PORT="" PROXY_USER="" PROXY_PASS="" PROXY_TYPE=""
+          save_assignment "$phone" -1
+          return
+          ;;
+        3)
+          echo "Продолжаю с текущим прокси."
+          return
+          ;;
+        *) echo "Неверный ввод." ;;
+      esac
+    done
+  fi
 }
 
 save_assignment() {
@@ -186,7 +255,7 @@ EOF
 
   echo "Запуск Telegram (в фоне) с tdata: $TDATA_HOST"
   if [ -n "${PROXY_HOST:-}" ]; then
-    echo "Прокси: $PROXY_HOST:$PROXY_PORT (весь трафик через SOCKS5)"
+    echo "Прокси: $PROXY_HOST:$PROXY_PORT [${PROXY_TYPE:-socks5}] (весь трафик через прокси)"
   else
     echo "Прокси: нет (прямое подключение)"
   fi
@@ -215,7 +284,11 @@ while true; do
   echo "  [c] Переключить tdata и запустить"
   echo "  [p] Сменить прокси для текущего аккаунта"
   echo "  [q] Выйти из скрипта (контейнер останется работать)"
+  echo
+  echo "  ── раскладка любая: можно жать д/ы/к/с/з/й ──"
+  echo
   read -rp "Выберите действие [l/s/r/c/p/q]: " act || true
+  act=$(normalize_key "${act:-}")
   case "${act:-}" in
     l|L)
       docker compose logs -f || true

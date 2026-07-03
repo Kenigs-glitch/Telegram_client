@@ -11,6 +11,7 @@ services:
       - PROXY_PORT=${PROXY_PORT:-}
       - PROXY_USER=${PROXY_USER:-}
       - PROXY_PASS=${PROXY_PASS:-}
+      - PROXY_TYPE=${PROXY_TYPE:-socks5}
     volumes:
       - ${TDATA_HOST}:/opt/Telegram/TelegramForcePortable/tdata
       - ${SHARED_HOST}:${SHARED_HOST}
